@@ -4,15 +4,24 @@ import numpy as np
 import cv2
 from PIL import Image
 import matplotlib.cm as cm
+import gdown
+import os
 
 # --- Page Config ---
 st.set_page_config(page_title="HealthGuard AI", page_icon="🛡️")
 
 @st.cache_resource
 def load_my_model():
-    # Update the path to match the root-relative location on Streamlit Cloud
-    model_path = 'Brain_APP/healthguard_xception.keras'
-    return tf.keras.models.load_model(model_path)
+    # Direct download link for the provided Google Drive file
+    file_id = '1ZVjktNMkQO_3YIDf_fGZWld-MlGBiuVf'
+    url = f'https://drive.google.com/uc?id={file_id}'
+    output = 'healthguard_xception.keras'
+    
+    # Download the model if it doesn't exist locally
+    if not os.path.exists(output):
+        gdown.download(url, output, quiet=False)
+    
+    return tf.keras.models.load_model(output)
 
 model = load_my_model()
 
@@ -58,10 +67,10 @@ uploaded_file = st.file_uploader("Upload MRI Scan", type=["jpg", "jpeg", "png"])
 if uploaded_file:
     img = Image.open(uploaded_file).convert('RGB')
     
-    # Preprocessing (224x224 as per your brain.py)
+    # Preprocessing (224x224)
     img_resized = img.resize((224, 224))
     img_array = np.array(img_resized) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+    img_array = np.expand_dims(img_array, axis=0).astype(np.float32)
 
     if st.button("Start Analysis"):
         preds = model.predict(img_array)
@@ -69,19 +78,21 @@ if uploaded_file:
         
         col1, col2 = st.columns(2)
         with col1:
-            st.image(img, caption="Original MRI", use_column_width=True)
+            st.image(img, caption="Original MRI", use_container_width=True)
             if class_idx == 1:
                 st.error("Result: Tumor Detected")
             else:
                 st.success("Result: No Tumor Detected")
 
         # --- Grad-CAM Logic ---
-        # For Xception, the last conv layer is typically 'block14_sepconv2_act'
         last_conv_layer = "block14_sepconv2_act" 
         
-        heatmap = make_gradcam_heatmap(img_array, model, last_conv_layer)
-        gradcam_img = save_and_display_gradcam(np.array(img_resized) * 255, heatmap)
+        try:
+            heatmap = make_gradcam_heatmap(img_array, model, last_conv_layer)
+            gradcam_img = save_and_display_gradcam(np.array(img_resized) * 255, heatmap)
 
-        with col2:
-            st.image(gradcam_img, caption="Explainable AI (Grad-CAM)", use_column_width=True)
-            st.info("The heatmap highlights regions the AI used to determine the classification.")
+            with col2:
+                st.image(gradcam_img, caption="Explainable AI (Grad-CAM)", use_container_width=True)
+                st.info("The heatmap highlights regions the AI used to determine the classification.")
+        except Exception:
+            st.warning("Heatmap generation failed. Check if layer name matches model architecture.")
